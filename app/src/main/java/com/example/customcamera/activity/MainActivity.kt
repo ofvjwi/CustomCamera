@@ -1,180 +1,69 @@
 package com.example.customcamera.activity
 
 import android.Manifest
-import android.content.ContentValues
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
-import android.view.WindowManager
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.*
-import androidx.camera.video.VideoCapture
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.PermissionChecker
 import com.example.customcamera.R
+import com.example.customcamera.customview.MyScanningView
 import com.example.customcamera.databinding.ActivityMainBinding
 import com.example.customcamera.extensions.MyExtensions.toast
-import com.example.customcamera.logger.MyLog.d
-import com.example.customcamera.logger.MyLog.e
-import java.nio.ByteBuffer
-import java.text.SimpleDateFormat
-import java.util.*
+import com.google.mlkit.vision.barcode.BarcodeScanner
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-typealias LumaListener = (luma: Double) -> Unit
-
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
 
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var camera: Camera
-    private var imageCapture: ImageCapture? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var recording: Recording? = null
     private var status: Boolean = false
 
     companion object {
         private const val TAG = "CameraXApplication"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
-        private val REQUIRED_PERMISSIONS =
-            mutableListOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).apply {
-                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P)
-                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }.toTypedArray()
+        private val REQUIRED_PERMISSIONS = mutableListOf(Manifest.permission.CAMERA).toTypedArray()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        window.statusBarColor = ContextCompat.getColor(this, R.color.red)
+        fullScreen(this)
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
-
         initViews()
-
     }
 
     private fun initViews() {
-        // Request camera permissions
-        if (allPermissionsGranted()) startCamera() else
-            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
 
-        // Set up the listeners for take photo and video capture buttons
-        viewBinding.imageCaptureButton.setOnClickListener { takePhoto() }
-        viewBinding.videoCaptureButton.setOnClickListener { captureVideo() }
-        viewBinding.lightButton.setOnClickListener { changeFlashLightState(!status) }
+        // scan effect animation will start
+        val myScanningView = findViewById<MyScanningView>(R.id.my_scanning_view)
+        myScanningView.startAnimation()
+
+
+        // Request camera permissions
+        if (allPermissionsGranted()) startCamera()
+        else ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+
+        viewBinding.lightButton.setOnClickListener {
+            changeFlashLightState(!status)
+        }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
     private fun changeFlashLightState(status: Boolean) {
-        camera.cameraControl.enableTorch(status); // or false
+        camera.cameraControl.enableTorch(status) // or false
         this.status = status
-    }
-
-    private fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture ?: return
-
-        // Create time stamped name and MediaStore entry.
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
-            }
-        }
-
-        // Create output options object which contains file + metadata
-        val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-            .build()
-
-        // Set up image capture listener, which is triggered after photo has
-        // been taken
-        imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(this),
-            object : ImageCapture.OnImageSavedCallback {
-
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                }
-
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val message = "Photo capture succeeded: ${output.savedUri}"
-                    Toast.makeText(baseContext, message, Toast.LENGTH_SHORT).show()
-                    Log.d(TAG, message)
-                }
-            }
-        )
-    }
-
-    private fun captureVideo() {
-        val videoCapture = this.videoCapture ?: return
-
-        viewBinding.videoCaptureButton.isEnabled = false
-
-        val currentRecording = recording
-        if (currentRecording != null) {
-            // Stop the current recording session.
-            currentRecording.stop()
-            recording = null
-            return
-        }
-
-        // create and start a new recording session
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P)
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CameraX-Video")
-        }
-
-        val mediaStoreOutputOptions = MediaStoreOutputOptions
-            .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
-            .setContentValues(contentValues)
-            .build()
-        recording = videoCapture.output.prepareRecording(this, mediaStoreOutputOptions).apply {
-            if (PermissionChecker.checkSelfPermission(
-                    this@MainActivity, Manifest.permission.RECORD_AUDIO
-                ) ==
-                PermissionChecker.PERMISSION_GRANTED
-            ) withAudioEnabled()
-        }.start(ContextCompat.getMainExecutor(this)) { recordEvent ->
-            when (recordEvent) {
-                is VideoRecordEvent.Start -> {
-                    viewBinding.videoCaptureButton.apply {
-                        text = getString(R.string.stop_capture)
-                        isEnabled = true
-                    }
-                }
-
-                is VideoRecordEvent.Finalize -> {
-                    if (!recordEvent.hasError()) {
-                        val msg = "Video capture succeeded: ${recordEvent.outputResults.outputUri}"
-                        toast(msg)
-                        d(TAG, msg)
-                    } else {
-                        recording?.close()
-                        recording = null
-                        e(TAG, "Video capture ends with error: ${recordEvent.error}")
-                    }
-                    viewBinding.videoCaptureButton.apply {
-                        text = getString(R.string.start_capture)
-                        isEnabled = true
-                    }
-                }
-            }
-        }
     }
 
     private fun startCamera() {
@@ -189,40 +78,103 @@ class MainActivity : AppCompatActivity() {
                 it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
             }
 
-            /** val recorder = Recorder.Builder()
-            .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
-            .build()
-
-            videoCapture = VideoCapture.withOutput(recorder)*/
-
-            imageCapture = ImageCapture.Builder().build()
-
-            val imageAnalyzer = ImageAnalysis.Builder().build().also {
-                it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
-                    d(TAG, "Average luminosity: $luma")
-                })
-            }
-
             // Select back camera as a default
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+
+            // configure our MLKit BarcodeScanning client
+            /* passing in our desired barcode formats - MLKit supports additional formats outside
+             of the ones listed here, and you may not need to offer support for all of these.
+             You should only specify the ones you need */
+            val options = BarcodeScannerOptions.Builder().setBarcodeFormats(
+                Barcode.FORMAT_CODE_128,
+                Barcode.FORMAT_CODE_39,
+                Barcode.FORMAT_CODE_93,
+                Barcode.FORMAT_EAN_8,
+                Barcode.FORMAT_EAN_13,
+                Barcode.FORMAT_QR_CODE,
+                Barcode.FORMAT_UPC_A,
+                Barcode.FORMAT_UPC_E,
+                Barcode.FORMAT_PDF417
+            ).build()
+            // getClient() creates a new instance of the MLKit barcode scanner with the specified options
+            val scanner = BarcodeScanning.getClient(options)
+
+            val imageAnalyzer = ImageAnalysis.Builder().build().also { imageAnalysis ->
+                imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), { imageProxy ->
+                    processImageProxy(scanner, imageProxy)
+                })
+            }
 
             try {
                 // Unbind use cases before rebinding
                 cameraProvider.unbindAll()
 
                 // Bind use cases to camera
-                camera = cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture, imageAnalyzer
-                )
+                camera =
+                    cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
 
-                // Bind use cases to camera
-                /**  cameraProvider.bindToLifecycle(this, cameraSelector, preview, videoCapture)*/
-
+            } catch (illegalStateException: IllegalStateException) {
+                // If the use case has already been bound to another lifecycle or method is not called on main thread.
+                Log.e(TAG, illegalStateException.message.orEmpty())
+            } catch (illegalArgumentException: IllegalArgumentException) {
+                // If the provided camera selector is unable to resolve a camera to be used for the given use cases.
+                Log.e(TAG, illegalArgumentException.message.orEmpty())
             } catch (exception: Exception) {
-                e(TAG, "Use case binding failed $exception")
+                Log.e(TAG, exception.message.orEmpty())
             }
 
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    @SuppressLint("UnsafeOptInUsageError")
+    private fun processImageProxy(barcodeScanner: BarcodeScanner, imageProxy: ImageProxy) {
+        imageProxy.image.let { image ->
+            val inputImage =
+                InputImage.fromMediaImage(image!!, imageProxy.imageInfo.rotationDegrees)
+
+            barcodeScanner.process(inputImage).addOnSuccessListener { barcodeList ->
+                val barcode = barcodeList.getOrNull(0)
+                // `rawValue` is the decoded value of the barcode
+                barcode?.rawValue?.let { value ->
+
+                    toast(value)
+                    finish()
+
+                    // show dialog
+                    //  showDialog(value)
+                }
+            }
+                .addOnFailureListener {
+                    // This failure will happen if the barcode scanning model
+                    // fails to download from Google Play Services
+                    Log.e(TAG, it.message.orEmpty())
+                }
+                .addOnCompleteListener {
+                    // When the image is from CameraX analysis use case, must
+                    // call image.close() on received images when finished
+                    // using them. Otherwise, new images may not be received
+                    // or the camera may stall.
+                    imageProxy.image?.close()
+                    imageProxy.close()
+                }
+        }
+    }
+
+    private fun showDialog(message: String) {
+        val alertDialog = AlertDialog.Builder(this)
+        alertDialog.setTitle(resources.getString(R.string.barcode_value))
+        alertDialog.setMessage(message)
+
+        alertDialog.setPositiveButton(
+            resources.getString(R.string.ok)
+        ) { _, _ -> toast(resources.getString(R.string.ok)) }
+
+        alertDialog.setNegativeButton(
+            resources.getString(R.string.no)
+        ) { _, _ -> toast(resources.getString(R.string.no)) }
+
+        alertDialog.show()
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -241,32 +193,13 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) startCamera() else {
-                toast("Permissions not granted by the user")
+            if (allPermissionsGranted())
+                startCamera()
+            else {
+                toast(resources.getString(R.string.permissions_not_granted))
                 finish()
             }
         }
     }
-
-    private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnalysis.Analyzer {
-
-        private fun ByteBuffer.toByteArray(): ByteArray {
-            rewind()    // Rewind the buffer to zero
-            val data = ByteArray(remaining())
-            get(data)   // Copy the buffer into a byte array
-            return data // Return the byte array
-        }
-
-        override fun analyze(image: ImageProxy) {
-
-            val buffer = image.planes[0].buffer
-            val data = buffer.toByteArray()
-            val pixels = data.map { it.toInt() and 0xFF }
-            val luma = pixels.average()
-            listener(luma)
-            image.close()
-        }
-    }
-
 }
 

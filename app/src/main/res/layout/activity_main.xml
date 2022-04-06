@@ -21,23 +21,25 @@
         android:textStyle="bold" />
 
     <FrameLayout
-        android:layout_width="250dp"
-        android:layout_height="250dp"
+        android:layout_width="240dp"
+        android:layout_height="240dp"
         android:layout_gravity="center"
         android:background="@drawable/preview_view_background_stroke"
         android:padding="3dp">
 
-        <LinearLayout
-            android:layout_width="250dp"
-            android:layout_height="250dp"
-            android:layout_gravity="center">
+        <androidx.camera.view.PreviewView
+            android:id="@+id/viewFinder"
+            android:layout_width="240dp"
+            android:layout_height="240dp"
+            android:layout_gravity="center"
+            android:visibility="visible" />
 
-            <androidx.camera.view.PreviewView
-                android:id="@+id/viewFinder"
-                android:layout_width="250dp"
-                android:layout_height="250dp"
-                android:layout_gravity="center" />
-        </LinearLayout>
+        <com.example.customcamera.customview.MyScanningView
+            android:id="@+id/my_scanning_view"
+            android:layout_gravity="center"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content" />
+
     </FrameLayout>
 
     <LinearLayout
@@ -45,8 +47,7 @@
         android:layout_height="60dp"
         android:layout_gravity="center_horizontal|bottom"
         android:layout_marginBottom="150dp"
-        android:background="@drawable/layout_circle"
-        >
+        android:background="@drawable/layout_circle">
 
         <com.google.android.material.imageview.ShapeableImageView
             android:id="@+id/light_button"
@@ -58,39 +59,6 @@
             app:shapeAppearanceOverlay="@style/circle" />
 
     </LinearLayout>
-
-    <Button
-        android:id="@+id/image_capture_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|bottom"
-        android:layout_marginEnd="50dp"
-        android:layout_marginBottom="50dp"
-        android:background="#A80345"
-        android:elevation="2dp"
-        android:text="@string/take_photo"
-        android:textAllCaps="false"
-        android:textColor="@color/white"
-        android:textSize="16sp"
-        android:textStyle="normal"
-        app:backgroundTint="@null" />
-
-    <Button
-        android:id="@+id/video_capture_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="start|bottom"
-        android:layout_marginStart="50dp"
-        android:layout_marginBottom="50dp"
-        android:background="#A80345"
-        android:elevation="2dp"
-        android:enabled="false"
-        android:text="@string/start_capture"
-        android:textAllCaps="false"
-        android:textColor="@color/white"
-        android:textSize="16sp"
-        android:textStyle="normal"
-        app:backgroundTint="@null" />
 
 </FrameLayout>
 
